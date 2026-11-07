@@ -8,6 +8,7 @@ import {
   taxiphones,
   scoreDuGagnant,
   REGLAGES_PAR_DEFAUT,
+  TAXIPHONE_FOIS,
 } from './rules.js';
 
 const app = document.getElementById('app');
@@ -324,8 +325,6 @@ function decrire(e) {
       }
       const mx = (m) => (m ? `+${m.rien}, ${m.fermeSeul} et ${m.ferme}` : '–');
       if (mx(a.manche) !== mx(b.manche)) changes.push(`manche ${mx(a.manche)} → <b>${mx(b.manche)}</b>`);
-      const tx = (t) => (t ? `${t.fois} fois` : '–');
-      if (tx(a.taxiphone) !== tx(b.taxiphone)) changes.push(`taxiphone ${tx(a.taxiphone)} → <b>${tx(b.taxiphone)}</b>`);
       return { texte: 'a modifié les règles', detail: changes.join(' ; ') };
     }
     default:
@@ -416,7 +415,7 @@ const COMBINE =
   '<svg class="combine" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>';
 
 const regleManche = () => etat.reglages.manche ?? REGLAGES_PAR_DEFAUT.manche;
-const regleTaxi = () => ({ rien: regleManche().rien, fois: (etat.reglages.taxiphone ?? REGLAGES_PAR_DEFAUT.taxiphone).fois });
+const regleTaxi = () => ({ rien: regleManche().rien, fois: TAXIPHONE_FOIS });
 const infosTaxi = (partie) => taxiphones(partie.joueurs, partie.manches, partie.etat.detail, regleTaxi());
 
 function badgeTaxi(n) {
@@ -906,7 +905,6 @@ function listeClassement(lignes, { detail = false } = {}) {
             detail
               ? `<span class="stats"><span>${pluriel(l.parties, 'partie')}</span><span>${pluriel(l.victoires, 'victoire')}</span>
                 <span>${l.moyenne.toFixed(1).replace('.', ',')} pts par partie</span>
-                ${l.taxiphone ? `<span class="taxi-stat">${COMBINE}${l.taxiphone} fois taxiphone</span>` : ''}
                 ${l.forme.length ? forme(l) : ''}</span>`
               : ''
           }
@@ -995,10 +993,7 @@ function vueReglages() {
         <input id="r-ferme-seul" name="fermeSeul" inputmode="numeric" value="${-regleManche().fermeSeul}"></div>
       <div class="champ"><label for="r-ferme">Points retirés au gagnant sinon</label>
         <input id="r-ferme" name="ferme" inputmode="numeric" value="${-regleManche().ferme}"></div>
-      <h3>Taxiphone</h3>
-      <div class="champ"><label for="r-taxi-fois">Nombre de +${regleManche().rien} dans une partie</label>
-        <input id="r-taxi-fois" name="taxiFois" inputmode="numeric" value="${regleTaxi().fois}">
-        <span class="aide">À partir de ce nombre, le joueur est taxiphone. Compté sur toutes les parties, anciennes comprises.</span></div>
+
       <button type="submit" class="btn principal plein">Enregistrer les règles</button>
     </form>
 
@@ -1281,7 +1276,6 @@ async function soumettreReglages(form) {
       fermeSeul: -Math.abs(Number(form.fermeSeul.value)),
       ferme: -Math.abs(Number(form.ferme.value)),
     },
-    taxiphone: { fois: Number(form.taxiFois.value) },
   };
   if (!reglages.bareme[2].length) delete reglages.bareme[2];
   await ecrire(() => api.enregistrerReglages(reglages), 'Règles enregistrées');

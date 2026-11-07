@@ -211,13 +211,3 @@ test('taxiphone : 3 fois +100 dans la partie, un sorti ne compte plus', () => {
   assert.deepEqual(compte, { 1: 3, 2: 2, 3: 0 });
   assert.deepEqual(taxi, [1]);
 });
-
-test('classement : nombre de parties où le joueur a été taxiphone', () => {
-  const manches = [m({ 1: 100, 2: -10, 3: 0 }), m({ 1: 100, 2: -10, 3: 0 }), m({ 1: 100, 2: 0, 3: 800 })];
-  const etat = calculerPartie({ joueurs: [1, 2, 3], manches, seuil: 701, bareme: B2 });
-  const cl = calculerClassement([{ table: 2, etat, joueurs: [1, 2, 3], manches }], [1, 2, 3], {
-    taxiphone: { rien: 100, fois: 3 },
-  });
-  assert.equal(cl.find((l) => l.id === 1).taxiphone, 1);
-  assert.equal(cl.find((l) => l.id === 2).taxiphone, 0);
-});

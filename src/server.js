@@ -154,9 +154,7 @@ app.put('/api/reglages', ecriture(async (client, req) => {
         ferme: entier(m.ferme, 'Score du gagnant', { min: -1000, max: 0 }),
       }
     : avant.manche;
-  const t = req.body?.taxiphone;
-  const taxiphone = t ? { fois: entier(t.fois, 'Nombre de +100 pour le taxiphone', { min: 1, max: 20 }) } : avant.taxiphone;
-  const apres = { seuil, restants, bareme, manche, taxiphone };
+  const apres = { seuil, restants, bareme, manche };
   if (JSON.stringify(avant) === JSON.stringify({ ...avant, ...apres })) return;
   for (const [cle, valeur] of Object.entries(apres)) {
     await client.query(

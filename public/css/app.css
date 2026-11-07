@@ -328,8 +328,6 @@ ol.resultats .tot { color: var(--doux); font-size: 14px; font-variant-numeric: t
 .forme b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; font-size: 12px; font-weight: 750; }
 .forme b.t1 { background: var(--vert); color: #fff; }
 .forme b.t2 { border: 1.5px solid var(--vert); color: var(--vert); }
-.classement .taxi-stat { display: inline-flex; align-items: center; gap: 4px; color: var(--jaune-fonce); font-weight: 650; }
-.classement .taxi-stat .combine { width: 14px; height: 14px; }
 .legende { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--doux); }
 .legende .forme b { width: 16px; height: 16px; }
 .legende .forme b.t1 { background: var(--creme); color: var(--bois); }

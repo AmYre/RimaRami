@@ -19,10 +19,10 @@ Appli web pensée pour le téléphone (on peut l’ajouter à l’écran d’acc
 | Places | Les 2 restants sont classés au plus petit total. Le premier sorti finit dernier. Deux sortis dans la même manche : le plus gros total est derrière. Égalité parfaite : même place. |
 | Points de classement | Table 1 (4 joueurs) : 10, 7, 5, 3. Table 2 (3 joueurs) : 5, 3, 1. |
 | Classement général | Somme des points. À égalité : meilleure moyenne par partie, puis plus de victoires. |
-| Taxiphone | Le joueur qui prend **3 fois +100** dans la même partie est « taxiphone » : son téléphone sonne, un badge reste sur sa carte, et le classement compte ses titres. |
+| Taxiphone | Surnom du joueur qui prend **3 fois +100** dans la même partie : son téléphone sonne et un badge reste sur sa carte. Purement cosmétique, ça ne change ni les scores ni le classement. |
 | Tables | Le 1er de la table 2 monte, le dernier de la table 1 descend. Avec 7 présents : 4 + 3 (8 : 4 + 4, 6 : 3 + 3). La proposition se modifie à la main ou se tire au sort. |
 
-Seuil, joueurs restants, barèmes, valeurs −20 / −10 / +100 et nombre de +100 du taxiphone se changent dans **Réglages**. Une partie garde les règles en vigueur au moment où elle a été lancée.
+Seuil, joueurs restants, barèmes et valeurs −20 / −10 / +100 se changent dans **Réglages**. Une partie garde les règles en vigueur au moment où elle a été lancée.
 
 Joueurs créés au premier démarrage : Amir, Youns, Riadh, Mo Salah, Adel, Fares, Jelel.
 

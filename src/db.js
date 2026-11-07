@@ -62,6 +62,8 @@ export async function initialiser(pool, { essais = 20, delaiMs = 3000 } = {}) {
   }
   const schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8');
   await pool.query(schema);
+  // Le taxiphone n'est plus un réglage (surnom purement cosmétique).
+  await pool.query("DELETE FROM reglages WHERE cle = 'taxiphone'");
 
   for (const [cle, valeur] of Object.entries(REGLAGES_PAR_DEFAUT)) {
     await pool.query('INSERT INTO reglages (cle, valeur) VALUES ($1, $2) ON CONFLICT (cle) DO NOTHING', [
@@ -214,9 +216,8 @@ export async function chargerEtat(db) {
 
   const toutesParties = tours.flatMap((t) => t.parties);
   const classement = calculerClassement(
-    toutesParties.map((p) => ({ table: p.table, etat: p.etat, joueurs: p.joueurs, manches: p.manches })),
+    toutesParties.map((p) => ({ table: p.table, etat: p.etat })),
     joueurs.map((j) => j.id),
-    { taxiphone: { rien: reglages.manche.rien, fois: reglages.taxiphone.fois } },
   );
 
   const dernierTermine = [...tours].reverse().find((t) => t.termine) ?? null;

@@ -12,9 +12,13 @@ export const REGLAGES_PAR_DEFAUT = {
   // Score d'une manche : celui qui n'a rien posé prend `rien` ; celui qui ferme prend `fermeSeul`
   // si personne d'autre n'est descendu, sinon `ferme` ; les autres comptent les cartes restées en main.
   manche: { rien: 100, fermeSeul: -20, ferme: -10 },
-  // « Taxiphone » : le joueur qui prend le +100 (rien posé) `fois` fois dans la même partie.
-  taxiphone: { fois: 3 },
 };
+
+/**
+ * « Taxiphone » : surnom du joueur qui prend le +100 (rien posé) plusieurs fois dans la même partie.
+ * Purement cosmétique : il ne change ni les scores ni le classement.
+ */
+export const TAXIPHONE_FOIS = 3;
 
 /**
  * Score du joueur qui ferme, selon les scores des autres joueurs de la manche.
@@ -134,32 +138,26 @@ export function compterRien(joueurs, manches, detail, rien = REGLAGES_PAR_DEFAUT
  * Joueurs « taxiphone » d'une partie.
  * @param {{rien: number, fois: number}} regle
  */
-export function taxiphones(joueurs, manches, detail, regle = { rien: 100, fois: 3 }) {
+export function taxiphones(joueurs, manches, detail, regle = { rien: REGLAGES_PAR_DEFAUT.manche.rien, fois: TAXIPHONE_FOIS }) {
   const compte = compterRien(joueurs, manches, detail, regle.rien);
   return { compte, taxi: joueurs.filter((id) => compte[id] >= regle.fois) };
 }
 
 /**
  * Classement général à partir des parties terminées.
- * @param {{table: number, etat: ReturnType<typeof calculerPartie>, joueurs?: number[], manches?: object[]}[]} parties
+ * @param {{table: number, etat: ReturnType<typeof calculerPartie>}[]} parties
  *   du plus ancien au plus récent
  * @param {number[]} joueurs ids à inclure
- * @param {{taxiphone?: {rien: number, fois: number}}} [options]
  */
-export function calculerClassement(parties, joueurs, { taxiphone = { rien: 100, fois: 3 } } = {}) {
+export function calculerClassement(parties, joueurs) {
   const stats = new Map(
     joueurs.map((id) => [
       id,
-      { id, points: 0, parties: 0, victoires: 0, partiesT1: 0, sommePlaces: 0, taxiphone: 0, forme: [] },
+      { id, points: 0, parties: 0, victoires: 0, partiesT1: 0, sommePlaces: 0, forme: [] },
     ]),
   );
   for (const p of parties) {
     if (!p.etat.terminee) continue;
-    if (p.manches && p.joueurs) {
-      for (const id of taxiphones(p.joueurs, p.manches, p.etat.detail, taxiphone).taxi) {
-        if (stats.has(id)) stats.get(id).taxiphone += 1;
-      }
-    }
     for (const c of p.etat.classement) {
       const s = stats.get(c.id);
       if (!s) continue;
