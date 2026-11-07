@@ -146,6 +146,52 @@ export async function lireDonnees(db) {
   return { joueurs: joueurs.rows, reglages, tours: [...toursById.values()], partiesById };
 }
 
+/** Une partie avec ses joueurs et ses manches (scores compris). */
+export async function lirePartie(client, id, { verrou = false } = {}) {
+  const { rows } = await client.query(
+    `SELECT id, tour_id, num_table, seuil, restants, bareme, cree_le FROM parties WHERE id = $1 ${verrou ? 'FOR UPDATE' : ''}`,
+    [id],
+  );
+  if (!rows[0]) return null;
+  const p = rows[0];
+  const joueurs = (
+    await client.query('SELECT joueur_id FROM partie_joueurs WHERE partie_id = $1 ORDER BY siege', [id])
+  ).rows.map((r) => r.joueur_id);
+  const manches = (
+    await client.query('SELECT id, num, cree_le FROM manches WHERE partie_id = $1 ORDER BY num', [id])
+  ).rows.map((m) => ({ id: m.id, num: m.num, creeLe: m.cree_le, scores: {} }));
+  const scores = (
+    await client.query(
+      'SELECT s.manche_id, s.joueur_id, s.points FROM manche_scores s JOIN manches m ON m.id = s.manche_id WHERE m.partie_id = $1',
+      [id],
+    )
+  ).rows;
+  const parManche = new Map(manches.map((m) => [m.id, m]));
+  for (const s of scores) parManche.get(s.manche_id).scores[s.joueur_id] = s.points;
+  return {
+    id: p.id,
+    tourId: p.tour_id,
+    table: p.num_table,
+    seuil: p.seuil,
+    restants: p.restants,
+    bareme: p.bareme,
+    creeLe: p.cree_le,
+    joueurs,
+    manches,
+  };
+}
+
+export async function ecrireScores(client, mancheId, scores) {
+  await client.query('DELETE FROM manche_scores WHERE manche_id = $1', [mancheId]);
+  for (const [joueurId, points] of Object.entries(scores)) {
+    await client.query('INSERT INTO manche_scores (manche_id, joueur_id, points) VALUES ($1, $2, $3)', [
+      mancheId,
+      Number(joueurId),
+      points,
+    ]);
+  }
+}
+
 export function etatPartie(p) {
   return calculerPartie({
     joueurs: p.joueurs,

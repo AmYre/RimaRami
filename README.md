@@ -5,6 +5,7 @@ Feuille de score et classement pour nos parties de rami tunisien.
 - **Pendant la partie** : on saisit les points de chaque manche, l’appli tient les totaux, annonce qui sort et quand la partie se termine.
 - **Après la partie** : chaque place rapporte des points au classement général, plus à la table 1 qu’à la table 2.
 - **Au tour suivant** : l’appli propose les tables par montée / descente.
+- **Historique des modifications** : chaque changement est signé (qui, quand, depuis quel téléphone, avant → après) et peut être annulé.
 
 Appli web pensée pour le téléphone (on peut l’ajouter à l’écran d’accueil). Node.js + PostgreSQL, sans étape de build.
 
@@ -39,6 +40,17 @@ Joueurs créés au premier démarrage : Amir, Youns, Riadh, Mo Salah, Adel, Fare
 
 Sans `APP_PIN`, toute personne qui a le lien peut modifier les scores. Avec `APP_PIN`, la consultation reste libre mais toute modification demande le code ; il est ensuite retenu sur le téléphone.
 
+### Historique des modifications
+
+Chaque téléphone indique une fois qui l’utilise (on touche son nom, modifiable dans *Réglages*). Toute modification est ensuite enregistrée dans un journal : auteur, date, appareil (« iPhone, Safari (a3f9c2) », l’identifiant distingue deux téléphones du même modèle) et valeurs avant / après.
+
+- Dans chaque partie, *Historique des modifications* liste les manches enregistrées, corrigées et supprimées.
+- Une correction peut être annulée (*Remettre les scores d’avant*), une manche supprimée rétablie à sa place.
+- Une partie supprimée se rétablit depuis *Historique → Parties supprimées*.
+- Les changements de règles et de joueurs apparaissent en bas de *Réglages*.
+
+Le nom est déclaratif : c’est un outil de confiance entre amis, pas une authentification. Le code d’accès (`APP_PIN`) reste la barrière pour les personnes extérieures.
+
 ### Sauvegardes
 
 *Réglages → Télécharger la sauvegarde* donne tout l’historique en JSON (`/api/export`). Les sauvegardes automatiques de la base se configurent aussi dans Dokploy.
@@ -63,6 +75,7 @@ npm test                     # tests des règles
 public/js/rules.js   règles du jeu, classement, montée/descente (partagé serveur + navigateur)
 src/server.js        API Express et fichiers statiques
 src/db.js            accès Postgres, chargement et calcul de l’état
+src/journal.js       journal des modifications et retour en arrière
 src/schema.sql       schéma (idempotent, exécuté à chaque démarrage)
 public/              interface (HTML, CSS, JS sans build)
 test/                tests (node --test)
@@ -81,9 +94,12 @@ Les places et points ne sont jamais stockés : ils sont recalculés à partir de
 | DELETE | `/api/parties/:id` | Supprimer une partie |
 | POST / PATCH | `/api/joueurs[/:id]` | Ajouter, renommer, activer un joueur |
 | PUT | `/api/reglages` | `{ seuil, restants, bareme: { 1: [...], 2: [...] } }` |
-| GET | `/api/export` | Sauvegarde JSON |
+| GET | `/api/parties/:id/journal` | Historique des modifications d’une partie |
+| GET | `/api/journal?actions=a,b&limite=n` | Journal filtré par type d’action |
+| POST | `/api/journal/:id/retablir` | Annuler une correction, rétablir une manche ou une partie supprimée |
+| GET | `/api/export` | Sauvegarde JSON (journal compris) |
 | GET | `/healthz` | Santé (vérifie la base) |
 
-Les écritures demandent l’en-tête `X-Pin` si `APP_PIN` est défini.
+Les écritures demandent l’en-tête `X-Auteur` (nom, encodé URL), et `X-Pin` si `APP_PIN` est défini. `X-Appareil` (6 caractères hexadécimaux) est facultatif.
 
 Police : Bricolage Grotesque (SIL Open Font License, `public/fonts/OFL.txt`).

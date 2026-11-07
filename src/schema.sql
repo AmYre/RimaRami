@@ -51,3 +51,21 @@ CREATE TABLE IF NOT EXISTS manche_scores (
   points    INT NOT NULL,
   PRIMARY KEY (manche_id, joueur_id)
 );
+
+-- Journal des modifications : qui a changé quoi, quand, et la valeur avant / après.
+-- Pas de clé étrangère : le journal survit aux suppressions (c'est ce qui permet de rétablir).
+CREATE TABLE IF NOT EXISTS journal (
+  id         SERIAL PRIMARY KEY,
+  le         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  auteur     TEXT,
+  appareil   TEXT,
+  action     TEXT NOT NULL,
+  tour_id    INT,
+  partie_id  INT,
+  manche_id  INT,
+  manche_num INT,
+  avant      JSONB,
+  apres      JSONB
+);
+CREATE INDEX IF NOT EXISTS journal_partie ON journal (partie_id, id);
+CREATE INDEX IF NOT EXISTS journal_action ON journal (action, id);

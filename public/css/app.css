@@ -251,6 +251,31 @@ ol.resultats .tot { color: var(--doux); font-size: 14px; font-variant-numeric: t
 .ligne-partie .noms { font-size: 15px; }
 .ligne-partie .noms b { font-weight: 700; }
 
+/* --- Journal des modifications --- */
+details.journal > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+details.journal > summary::-webkit-details-marker { display: none; }
+details.journal > summary::after {
+  content: ''; flex: none; width: 10px; height: 10px; margin-right: 4px;
+  border-right: 2px solid var(--doux); border-bottom: 2px solid var(--doux);
+  transform: rotate(45deg); transition: transform .15s;
+}
+details.journal[open] > summary::after { transform: rotate(-135deg); }
+details.journal > summary .titre { display: grid; gap: 2px; }
+ol.journal-liste { list-style: none; margin: 0; padding: 0; }
+ol.journal-liste li { padding: 12px 0 12px 14px; border-left: 2px solid var(--trait); position: relative; }
+ol.journal-liste li::before {
+  content: ''; position: absolute; left: -6px; top: 17px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--carte); border: 2px solid var(--bleu);
+}
+ol.journal-liste li:first-child::before { background: var(--bleu); }
+ol.journal-liste li > * + * { margin-top: 3px; }
+ol.journal-liste .detail { font-size: 15px; font-variant-numeric: tabular-nums; }
+ol.journal-liste .detail b { color: var(--bleu); }
+ol.journal-liste .meta { font-size: 13px; color: var(--doux); }
+ol.journal-liste .retablir { min-height: 40px; margin-top: 8px; font-size: 15px; }
+.signature { font-size: 14px; color: var(--doux); }
+.lien { border: 0; background: none; padding: 0; color: var(--bleu); text-decoration: underline; cursor: pointer; font-size: inherit; }
+
 /* --- Navigation --- */
 nav.onglets {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;

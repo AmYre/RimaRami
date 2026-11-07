@@ -10,6 +10,10 @@ const ui = {
   nouveau: null, // composition du prochain tour
   sortisVus: {}, // partieId -> Set des joueurs déjà vus sortis (pour l'animation)
   occupe: false,
+  journaux: {}, // clé -> événements du journal
+  journauxPerimes: new Set(),
+  journauxEnChargement: new Set(),
+  journauxOuverts: {},
 };
 
 // ---------------------------------------------------------------- utilitaires
@@ -19,7 +23,17 @@ const esc = (s) =>
 const nom = (id) => esc(etat.joueurs.find((j) => j.id === Number(id))?.nom ?? '?');
 const pluriel = (n, mot, motPluriel = `${mot}s`) => `${n} ${n > 1 ? motPluriel : mot}`;
 const fmtDate = new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+const fmtHeure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' });
 const dateCourte = (iso) => fmtDate.format(new Date(iso));
+function quand(iso) {
+  const d = new Date(iso);
+  const jour = (x) => x.toDateString();
+  const hier = new Date();
+  hier.setDate(hier.getDate() - 1);
+  if (jour(d) === jour(new Date())) return `aujourd’hui à ${fmtHeure.format(d)}`;
+  if (jour(d) === jour(hier)) return `hier à ${fmtHeure.format(d)}`;
+  return `${dateCourte(iso)} à ${fmtHeure.format(d)}`;
+}
 const ordinal = (n) => (n === 1 ? '1er' : `${n}e`);
 
 const SUITES = {
@@ -70,6 +84,7 @@ async function rafraichir({ force = false } = {}) {
     if (!force && sig === signature) return;
     // Ne pas redessiner sous les doigts de quelqu'un qui tape un score.
     if (!force && etat && document.activeElement?.matches?.('input, select, textarea')) return;
+    perimerJournaux();
     appliquer(e);
   } catch (err) {
     if (!etat) {
@@ -79,24 +94,40 @@ async function rafraichir({ force = false } = {}) {
   }
 }
 
-/** Lance une écriture ; demande le code d'accès si le serveur l'exige. */
+/** Lance une écriture ; demande qui saisit, et le code d'accès si le serveur l'exige. */
 async function ecrire(fn, message) {
   if (ui.occupe) return false;
+  if (!api.auteur() && !(await demanderAuteur())) {
+    toast('Modification annulée : indique qui fait la modification.', true);
+    return false;
+  }
   ui.occupe = true;
   document.querySelectorAll('button[type="submit"]').forEach((b) => (b.disabled = true));
   try {
     let resultat;
-    try {
-      resultat = await fn();
-    } catch (err) {
-      if (err.status !== 401) throw err;
-      api.enregistrerPin(null);
-      if (!(await demanderPin())) {
-        toast('Modification annulée : il faut le code d’accès.', true);
-        return false;
+    for (let essai = 0; ; essai++) {
+      try {
+        resultat = await fn();
+        break;
+      } catch (err) {
+        if (essai >= 2) throw err;
+        if (err.status === 401) {
+          api.enregistrerPin(null);
+          if (!(await demanderPin())) {
+            toast('Modification annulée : il faut le code d’accès.', true);
+            return false;
+          }
+        } else if (err.status === 428) {
+          if (!(await demanderAuteur())) {
+            toast('Modification annulée : indique qui fait la modification.', true);
+            return false;
+          }
+        } else {
+          throw err;
+        }
       }
-      resultat = await fn();
     }
+    perimerJournaux();
     appliquer(resultat);
     if (message) toast(message);
     return true;
@@ -148,6 +179,220 @@ function demanderPin() {
     d.showModal();
     input.focus();
   });
+}
+
+/** Demande qui utilise ce téléphone : son nom signe les modifications. */
+function demanderAuteur() {
+  return new Promise((resolve) => {
+    const actuel = api.auteur();
+    const d = document.createElement('dialog');
+    d.innerHTML = `<form>
+      <h2>Qui saisit ?</h2>
+      <p class="doux petit">Ton nom signe les modifications faites depuis ce téléphone. Tu pourras le changer dans Réglages.</p>
+      <div class="puces">
+        ${etat.joueurs
+          .filter((j) => j.actif)
+          .map((j) => `<button type="button" class="puce" data-nom="${esc(j.nom)}" aria-pressed="${j.nom === actuel}">${esc(j.nom)}</button>`)
+          .join('')}
+      </div>
+      <div class="champ"><label for="autre-nom">Autre nom</label>
+        <input id="autre-nom" maxlength="30" autocomplete="off" placeholder="Un invité, par exemple"></div>
+      <div class="actions"><button type="button" class="btn" data-annuler>Annuler</button>
+        <button type="submit" class="btn principal">Valider</button></div>
+    </form>`;
+    document.body.append(d);
+    const fin = (nom) => {
+      if (nom) api.enregistrerAuteur(nom);
+      d.close();
+      d.remove();
+      resolve(nom || null);
+    };
+    d.querySelectorAll('[data-nom]').forEach((b) => b.addEventListener('click', () => fin(b.dataset.nom)));
+    d.querySelector('[data-annuler]').addEventListener('click', () => fin(null));
+    d.addEventListener('cancel', () => fin(null));
+    d.querySelector('form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const nom = d.querySelector('#autre-nom').value.trim().replace(/\s+/g, ' ');
+      if (nom) fin(nom);
+      else d.querySelector('#autre-nom').focus();
+    });
+    d.showModal();
+  });
+}
+
+// ---------------------------------------------------------------- journal des modifications
+
+function perimerJournaux() {
+  for (const cle of Object.keys(ui.journaux)) ui.journauxPerimes.add(cle);
+}
+
+function requeteJournal(cle) {
+  if (cle.startsWith('p')) return api.journalPartie(Number(cle.slice(1)));
+  if (cle === 'supprimees') return api.journal({ actions: ['partie.supprimee'], limite: 30 });
+  return api.journal({ actions: ['joueur.ajoute', 'joueur.modifie', 'reglages.modifies'], limite: 20 });
+}
+
+/** Charge les journaux affichés à l'écran qui manquent ou ne sont plus à jour. */
+function chargerJournauxVisibles() {
+  for (const el of document.querySelectorAll('[data-journal]')) {
+    const cle = el.dataset.journal;
+    if ((ui.journaux[cle] && !ui.journauxPerimes.has(cle)) || ui.journauxEnChargement.has(cle)) continue;
+    ui.journauxEnChargement.add(cle);
+    requeteJournal(cle)
+      .then((evts) => {
+        ui.journaux[cle] = evts;
+        ui.journauxPerimes.delete(cle);
+      })
+      .catch(() => {})
+      .finally(() => {
+        ui.journauxEnChargement.delete(cle);
+        document.querySelectorAll(`[data-journal="${cle}"]`).forEach((e) => (e.innerHTML = contenuJournal(cle)));
+      });
+  }
+}
+
+const blocJournal = (cle) => `<div data-journal="${cle}">${contenuJournal(cle)}</div>`;
+
+const scoresTexte = (s) =>
+  Object.entries(s ?? {})
+    .map(([id, p]) => `${nom(id)} ${p}`)
+    .join(', ');
+
+function diffScores(a = {}, b = {}) {
+  const ids = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+  const changes = ids
+    .filter((id) => Number(a[id]) !== Number(b[id]))
+    .map((id) => `${nom(id)} ${a[id] ?? '–'} → <b>${b[id] ?? '–'}</b>`);
+  return changes.length ? changes.join(', ') : 'Aucun changement';
+}
+
+const memesScores = (a = {}, b = {}) => {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => Number(a[k]) === Number(b[k]));
+};
+
+function decrire(e) {
+  const a = e.avant ?? {};
+  const b = e.apres ?? {};
+  switch (e.action) {
+    case 'partie.creee':
+      return { texte: 'a lancé la partie', detail: (b.joueurs ?? []).map(nom).join(', ') };
+    case 'manche.ajoutee':
+      return { texte: `a enregistré la manche ${e.mancheNum}`, detail: scoresTexte(b.scores) };
+    case 'manche.corrigee':
+      return { texte: `a corrigé la manche ${e.mancheNum}`, detail: diffScores(a.scores, b.scores) };
+    case 'manche.supprimee':
+      return { texte: `a supprimé la manche ${e.mancheNum}`, detail: scoresTexte(a.scores) };
+    case 'manche.retablie':
+      return {
+        texte: e.avant ? `a remis les anciens scores de la manche ${e.mancheNum}` : `a rétabli la manche ${e.mancheNum}`,
+        detail: e.avant ? diffScores(a.scores, b.scores) : scoresTexte(b.scores),
+      };
+    case 'partie.supprimee': {
+      const p = a.partie;
+      return {
+        texte: p ? `a supprimé la table ${p.table} du ${dateCourte(a.tour.creeLe)}` : 'a supprimé la partie',
+        detail: p ? `${p.joueurs.map(nom).join(', ')}. ${pluriel(p.manches.length, 'manche')} jouée${p.manches.length > 1 ? 's' : ''}.` : '',
+      };
+    }
+    case 'partie.retablie':
+      return { texte: 'a rétabli la partie', detail: '' };
+    case 'joueur.ajoute':
+      return { texte: `a ajouté ${esc(b.nom)} aux joueurs`, detail: '' };
+    case 'joueur.modifie':
+      if (a.nom !== b.nom) return { texte: `a renommé ${esc(a.nom)} en ${esc(b.nom)}`, detail: '' };
+      return { texte: b.actif ? `a remis ${esc(b.nom)} parmi les joueurs` : `a retiré ${esc(b.nom)} des joueurs`, detail: '' };
+    case 'reglages.modifies': {
+      const changes = [];
+      if (a.seuil !== b.seuil) changes.push(`seuil ${a.seuil} → <b>${b.seuil}</b>`);
+      if (a.restants !== b.restants) changes.push(`joueurs restants ${a.restants} → <b>${b.restants}</b>`);
+      for (const t of ['1', '2']) {
+        const av = (a.bareme?.[t] ?? []).join(', ');
+        const ap = (b.bareme?.[t] ?? []).join(', ');
+        if (av !== ap) changes.push(`table ${t} : ${av || '–'} → <b>${ap || '–'}</b>`);
+      }
+      return { texte: 'a modifié les règles', detail: changes.join(' ; ') };
+    }
+    default:
+      return { texte: esc(e.action), detail: '' };
+  }
+}
+
+/** Pour les suppressions, seule la plus récente d'un même élément peut être rétablie. */
+function suppressionsRecentes(evts = []) {
+  const vus = new Set();
+  const ids = new Set();
+  for (const e of evts) {
+    const cle = e.action === 'manche.supprimee' ? `m${e.mancheId}` : e.action === 'partie.supprimee' ? `p${e.partieId}` : null;
+    if (!cle || vus.has(cle)) continue;
+    vus.add(cle);
+    ids.add(e.id);
+  }
+  return ids;
+}
+
+function boutonRetablir(e, partie, recentes) {
+  if (e.action.endsWith('.supprimee') && !recentes.has(e.id)) return '';
+  let texte = null;
+  if (e.action === 'manche.corrigee' && partie) {
+    const m = partie.manches.find((x) => x.id === e.mancheId);
+    if (m && !memesScores(m.scores, e.avant?.scores)) texte = 'Remettre les scores d’avant';
+  } else if (e.action === 'manche.supprimee' && partie) {
+    if (!partie.manches.some((x) => x.id === e.mancheId)) texte = 'Rétablir cette manche';
+  } else if (e.action === 'partie.supprimee') {
+    if (!trouverPartie(e.partieId)) texte = 'Rétablir cette partie';
+  }
+  return texte
+    ? `<button type="button" class="btn retablir" data-action="retablir" data-evt="${e.id}" data-texte="${texte}">${texte}</button>`
+    : '';
+}
+
+function ligneJournal(e, partie, recentes) {
+  const { texte, detail } = decrire(e);
+  return `<li>
+    <p><b>${e.auteur ? esc(e.auteur) : 'Quelqu’un'}</b> ${texte}</p>
+    ${detail ? `<p class="detail">${detail}</p>` : ''}
+    <p class="meta"><time datetime="${esc(e.le)}">${quand(e.le)}</time>${e.appareil ? `, ${esc(e.appareil)}` : ''}</p>
+    ${boutonRetablir(e, partie, recentes)}
+  </li>`;
+}
+
+function contenuJournal(cle) {
+  const evts = ui.journaux[cle];
+
+  if (cle.startsWith('p')) {
+    const partie = trouverPartie(Number(cle.slice(1)))?.partie ?? null;
+    const resume = !evts
+      ? 'Chargement…'
+      : evts.length
+        ? `${pluriel(evts.length, 'modification')}, la dernière par ${esc(evts[0].auteur ?? 'quelqu’un')} ${quand(evts[0].le)}`
+        : 'Aucune modification';
+    return `<details class="feuille journal" data-cle="${cle}" ${ui.journauxOuverts[cle] ? 'open' : ''}>
+      <summary><span class="titre"><h2>Historique des modifications</h2><span class="doux petit">${resume}</span></span></summary>
+      ${evts?.length ? `<ol class="journal-liste">${evts.map((e) => ligneJournal(e, partie, suppressionsRecentes(evts))).join('')}</ol>` : ''}
+    </details>`;
+  }
+
+  if (cle === 'supprimees') {
+    const recentes = suppressionsRecentes(evts);
+    const absentes = (evts ?? []).filter((e) => recentes.has(e.id) && !trouverPartie(e.partieId));
+    if (!absentes.length) return '';
+    return `<div class="feuille">
+      <h2>Parties supprimées</h2>
+      <ol class="journal-liste">${absentes.map((e) => ligneJournal(e, null, recentes)).join('')}</ol>
+    </div>`;
+  }
+
+  return `<div class="feuille">
+    <h2>Modifications des règles et des joueurs</h2>
+    ${
+      !evts
+        ? '<p class="doux petit">Chargement…</p>'
+        : evts.length
+          ? `<ol class="journal-liste">${evts.map((e) => ligneJournal(e, null, new Set())).join('')}</ol>`
+          : '<p class="doux petit">Aucune modification pour l’instant.</p>'
+    }
+  </div>`;
 }
 
 // ---------------------------------------------------------------- composants
@@ -240,7 +485,7 @@ function vuePartie(id) {
   const trouve = trouverPartie(id);
   if (!trouve) {
     return `${bandeau({ titre: 'Partie introuvable', retour: { href: '#/', texte: 'Parties' } })}
-      <div class="section"><p>Cette partie a peut-être été supprimée.</p></div>`;
+      <div class="section"><p>Cette partie a peut-être été supprimée. Si c’est le cas, tu peux la rétablir depuis l’<a href="#/historique">historique</a>.</p></div>`;
   }
   const { partie, tour } = trouve;
   const e = partie.etat;
@@ -267,6 +512,7 @@ function vuePartie(id) {
     ${principal}
     ${e.terminee ? resultats(partie, tour) : ''}
     ${tableauManches(partie, enEdition)}
+    ${blocJournal(`p${partie.id}`)}
     <button class="btn danger plein" data-action="supprimer-partie" data-partie="${partie.id}">Supprimer cette partie</button>
   </div>`;
 }
@@ -307,7 +553,15 @@ function formulaireManche(partie, mode) {
       <button type="submit" class="btn principal">${correction ? 'Enregistrer la correction' : `Enregistrer la manche ${num}`}</button>
     </div>
     ${correction ? `<button type="button" class="btn danger plein" data-action="supprimer-manche" data-manche="${mode.manche.id}">Supprimer la manche ${num}</button>` : ''}
+    ${ligneSignature()}
   </form>`;
+}
+
+function ligneSignature() {
+  const qui = api.auteur();
+  return qui
+    ? `<p class="signature">Enregistré au nom de <b>${esc(qui)}</b>. <button type="button" class="lien" data-action="changer-auteur">Changer</button></p>`
+    : `<p class="signature">Ton nom sera demandé à l’enregistrement.</p>`;
 }
 
 const estScore = (v) => /^-?\d+$/.test(String(v ?? '').trim());
@@ -541,7 +795,7 @@ function vueClassement() {
 
 function vueHistorique() {
   if (!etat.tours.length) {
-    return `${bandeau({ titre: 'Historique' })}<div class="section"><p>Les tours joués apparaîtront ici.</p></div>`;
+    return `${bandeau({ titre: 'Historique' })}<div class="section"><p>Les tours joués apparaîtront ici.</p>${blocJournal('supprimees')}</div>`;
   }
   return `${bandeau({ titre: 'Historique', sousTitre: pluriel(etat.tours.length, 'tour joué', 'tours joués') })}
   <div class="section">
@@ -562,6 +816,7 @@ function vueHistorique() {
         </div>`,
       )
       .join('')}
+    ${blocJournal('supprimees')}
   </div>`;
 }
 
@@ -610,6 +865,17 @@ function vueReglages() {
     </div>
 
     <div class="feuille">
+      <h2>Ton nom sur ce téléphone</h2>
+      ${
+        api.auteur()
+          ? `<p>Les modifications faites ici sont signées <b>${esc(api.auteur())}</b>.</p>
+             <button type="button" class="btn plein" data-action="changer-auteur">Changer de nom</button>`
+          : `<p class="doux">Ton nom sera demandé à la première modification.</p>
+             <button type="button" class="btn plein" data-action="changer-auteur">Choisir mon nom</button>`
+      }
+    </div>
+
+    <div class="feuille">
       <h2>Code d’accès</h2>
       ${
         etat.pinRequis
@@ -627,6 +893,8 @@ function vueReglages() {
       <p class="doux petit">Toutes les parties et manches dans un fichier JSON.</p>
       <a class="btn plein" href="/api/export" download>Télécharger la sauvegarde</a>
     </div>
+
+    ${blocJournal('reglages')}
   </div>`;
 }
 
@@ -649,6 +917,7 @@ function render() {
     reglages: vueReglages,
   };
   app.innerHTML = (vues[vue] ?? vueAccueil)();
+  chargerJournauxVisibles();
   const onglet = { '': 'accueil', partie: 'accueil', nouveau: 'accueil' }[vue] ?? vue;
   document.querySelectorAll('nav.onglets a').forEach((a) => {
     if (a.dataset.onglet === onglet) a.setAttribute('aria-current', 'page');
@@ -689,6 +958,14 @@ document.addEventListener('keydown', (ev) => {
     el.click();
   }
 });
+
+document.addEventListener(
+  'toggle',
+  (ev) => {
+    if (ev.target.matches?.('details[data-cle]')) ui.journauxOuverts[ev.target.dataset.cle] = ev.target.open;
+  },
+  true,
+);
 
 document.addEventListener('change', async (ev) => {
   const el = ev.target;
@@ -852,6 +1129,21 @@ document.addEventListener('click', async (ev) => {
       const nouveauNom = prompt('Nouveau nom', actuel?.nom ?? '')?.trim();
       if (!nouveauNom || nouveauNom === actuel?.nom) return;
       return ecrire(() => api.modifierJoueur(joueur, { nom: nouveauNom }), 'Joueur renommé');
+    }
+
+    case 'changer-auteur':
+      if (await demanderAuteur()) toast(`Modifications signées ${api.auteur()}`);
+      return render();
+
+    case 'retablir': {
+      const id = Number(el.dataset.evt);
+      if (!confirm(`${el.dataset.texte} ?`)) return;
+      const messages = {
+        'Remettre les scores d’avant': 'Anciens scores remis',
+        'Rétablir cette manche': 'Manche rétablie',
+        'Rétablir cette partie': 'Partie rétablie',
+      };
+      return ecrire(() => api.retablir(id), messages[el.dataset.texte] ?? 'Rétabli');
     }
 
     case 'oublier-pin':
