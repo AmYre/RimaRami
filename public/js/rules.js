@@ -9,7 +9,21 @@ export const REGLAGES_PAR_DEFAUT = {
   restants: 2,
   // Points de classement par place, pour chaque table (index 0 = 1re place).
   bareme: { 1: [10, 7, 5, 3], 2: [5, 3, 1] },
+  // Score d'une manche : celui qui n'a rien posé prend `rien` ; celui qui ferme prend `fermeSeul`
+  // si personne d'autre n'est descendu, sinon `ferme` ; les autres comptent les cartes restées en main.
+  manche: { rien: 100, fermeSeul: -20, ferme: -10 },
+  // « Taxiphone » : le joueur qui prend le +100 (rien posé) `fois` fois dans la même partie.
+  taxiphone: { fois: 3 },
 };
+
+/**
+ * Score du joueur qui ferme, selon les scores des autres joueurs de la manche.
+ * @param {number[]} autres scores des autres joueurs
+ */
+export function scoreDuGagnant(autres, regle = REGLAGES_PAR_DEFAUT.manche) {
+  const personneDescendu = autres.length > 0 && autres.every((v) => v === regle.rien);
+  return personneDescendu ? regle.fermeSeul : regle.ferme;
+}
 
 export const JOUEURS_INITIAUX = ['Amir', 'Youns', 'Riadh', 'Mo Salah', 'Adel', 'Fares', 'Jelel'];
 
@@ -101,20 +115,51 @@ export function calculerPartie({ joueurs, manches, seuil, restants = REGLAGES_PA
 }
 
 /**
+ * Nombre de manches où chaque joueur a pris le +100 (rien posé), tant qu'il était en jeu.
+ * @param {number[]} joueurs
+ * @param {{scores: Record<string, number>}[]} manches
+ * @param {ReturnType<typeof calculerPartie>['detail']} detail
+ */
+export function compterRien(joueurs, manches, detail, rien = REGLAGES_PAR_DEFAUT.manche.rien) {
+  const compte = Object.fromEntries(joueurs.map((id) => [id, 0]));
+  manches.forEach((m, i) => {
+    const d = detail[i];
+    if (!d || d.horsPartie) return;
+    for (const id of d.actifs) if (toInt(m.scores?.[id]) === rien) compte[id] += 1;
+  });
+  return compte;
+}
+
+/**
+ * Joueurs « taxiphone » d'une partie.
+ * @param {{rien: number, fois: number}} regle
+ */
+export function taxiphones(joueurs, manches, detail, regle = { rien: 100, fois: 3 }) {
+  const compte = compterRien(joueurs, manches, detail, regle.rien);
+  return { compte, taxi: joueurs.filter((id) => compte[id] >= regle.fois) };
+}
+
+/**
  * Classement général à partir des parties terminées.
- * @param {{table: number, date?: string, etat: ReturnType<typeof calculerPartie>}[]} parties
+ * @param {{table: number, etat: ReturnType<typeof calculerPartie>, joueurs?: number[], manches?: object[]}[]} parties
  *   du plus ancien au plus récent
  * @param {number[]} joueurs ids à inclure
+ * @param {{taxiphone?: {rien: number, fois: number}}} [options]
  */
-export function calculerClassement(parties, joueurs) {
+export function calculerClassement(parties, joueurs, { taxiphone = { rien: 100, fois: 3 } } = {}) {
   const stats = new Map(
     joueurs.map((id) => [
       id,
-      { id, points: 0, parties: 0, victoires: 0, partiesT1: 0, sommePlaces: 0, forme: [] },
+      { id, points: 0, parties: 0, victoires: 0, partiesT1: 0, sommePlaces: 0, taxiphone: 0, forme: [] },
     ]),
   );
   for (const p of parties) {
     if (!p.etat.terminee) continue;
+    if (p.manches && p.joueurs) {
+      for (const id of taxiphones(p.joueurs, p.manches, p.etat.detail, taxiphone).taxi) {
+        if (stats.has(id)) stats.get(id).taxiphone += 1;
+      }
+    }
     for (const c of p.etat.classement) {
       const s = stats.get(c.id);
       if (!s) continue;

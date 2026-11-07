@@ -1,5 +1,14 @@
 import * as api from './api.js';
-import { calculerPartie, proposerTables, repartir, mouvements, melanger } from './rules.js';
+import {
+  calculerPartie,
+  proposerTables,
+  repartir,
+  mouvements,
+  melanger,
+  taxiphones,
+  scoreDuGagnant,
+  REGLAGES_PAR_DEFAUT,
+} from './rules.js';
 
 const app = document.getElementById('app');
 let etat = null;
@@ -8,7 +17,9 @@ const ui = {
   brouillons: {}, // saisies en cours, par formulaire
   edition: null, // { partieId, mancheId } quand on corrige une manche
   nouveau: null, // composition du prochain tour
-  sortisVus: {}, // partieId -> Set des joueurs déjà vus sortis (pour l'animation)
+  vus: {}, // partieId -> dernier état affiché (sortis, taxiphones, fin) pour repérer ce qui vient de changer
+  effets: [], // animations à jouer après le prochain affichage
+  distribuer: new Set(), // parties dont on montre la distribution des cartes
   occupe: false,
   journaux: {}, // clé -> événements du journal
   journauxPerimes: new Set(),
@@ -311,6 +322,10 @@ function decrire(e) {
         const ap = (b.bareme?.[t] ?? []).join(', ');
         if (av !== ap) changes.push(`table ${t} : ${av || '–'} → <b>${ap || '–'}</b>`);
       }
+      const mx = (m) => (m ? `+${m.rien}, ${m.fermeSeul} et ${m.ferme}` : '–');
+      if (mx(a.manche) !== mx(b.manche)) changes.push(`manche ${mx(a.manche)} → <b>${mx(b.manche)}</b>`);
+      const tx = (t) => (t ? `${t.fois} fois` : '–');
+      if (tx(a.taxiphone) !== tx(b.taxiphone)) changes.push(`taxiphone ${tx(a.taxiphone)} → <b>${tx(b.taxiphone)}</b>`);
       return { texte: 'a modifié les règles', detail: changes.join(' ; ') };
     }
     default:
@@ -397,16 +412,31 @@ function contenuJournal(cle) {
 
 // ---------------------------------------------------------------- composants
 
-function carte(partie, c, { compact = false, anime = false } = {}) {
+const COMBINE =
+  '<svg class="combine" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>';
+
+const regleManche = () => etat.reglages.manche ?? REGLAGES_PAR_DEFAUT.manche;
+const regleTaxi = () => ({ rien: regleManche().rien, fois: (etat.reglages.taxiphone ?? REGLAGES_PAR_DEFAUT.taxiphone).fois });
+const infosTaxi = (partie) => taxiphones(partie.joueurs, partie.manches, partie.etat.detail, regleTaxi());
+
+function badgeTaxi(n) {
+  return `<span class="taxi" title="Taxiphone : ${n} fois +${regleTaxi().rien}">${COMBINE}<b>${n}</b></span>`;
+}
+
+function carte(partie, c, { compact = false, anime = false, taxi = 0 } = {}) {
   const siege = partie.joueurs.indexOf(c.id);
+  const badge = taxi >= regleTaxi().fois ? badgeTaxi(taxi) : '';
+  const libelleTaxi = badge ? `, taxiphone (${taxi} fois)` : '';
   if (c.sorti) {
-    return `<div class="carte sortie${anime ? ' vient-de-sortir' : ''}" role="group" aria-label="${nom(c.id)}, sorti avec ${c.total} points">
+    return `<div class="carte sortie${anime ? ' vient-de-sortir' : ''}" data-joueur="${c.id}" role="group" aria-label="${nom(c.id)}, sorti avec ${c.total} points${libelleTaxi}">
       <div class="etiquette"><div class="nom">${nom(c.id)}</div><div class="total">${c.total}</div>
-      ${compact ? '' : `<div class="reste">sorti</div>`}</div></div>`;
+      ${compact ? '' : `<div class="reste">sorti</div>`}</div>${badge}</div>`;
   }
   const ratio = Math.min(1, Math.max(0, c.total / partie.seuil));
   const danger = c.reste <= 100 && !partie.etat.terminee;
-  return `<div class="carte${danger ? ' danger' : ''}" role="group" aria-label="${nom(c.id)}, ${c.total} points, ${ordinal(c.place)}">
+  const gagnante = partie.etat.terminee && c.place === 1;
+  return `<div class="carte${danger ? ' danger' : ''}${gagnante ? ' gagnante' : ''}" data-joueur="${c.id}" role="group" aria-label="${nom(c.id)}, ${c.total} points, ${ordinal(c.place)}${gagnante ? ', gagnant' : ''}${libelleTaxi}">
+    ${badge}
     <div class="coin" aria-hidden="true"><span class="rang">${c.place}</span>${suite(siege)}</div>
     <div class="milieu">
       <div class="total">${c.total}</div>
@@ -417,10 +447,18 @@ function carte(partie, c, { compact = false, anime = false } = {}) {
   </div>`;
 }
 
-function jeu(partie, { compact = false, animer = [] } = {}) {
+function jeu(partie, { compact = false, animer = [], distribuer = false } = {}) {
   const parId = Object.fromEntries(partie.etat.classement.map((c) => [c.id, c]));
-  return `<div class="jeu${compact ? ' compact' : ''}" style="--n:${partie.joueurs.length}">
-    ${partie.joueurs.map((id) => carte(partie, parId[id], { compact, anime: animer.includes(id) })).join('')}
+  const { compte } = infosTaxi(partie);
+  const n = partie.joueurs.length;
+  return `<div class="jeu${compact ? ' compact' : ''}${distribuer ? ' distribue' : ''}" style="--n:${n}">
+    ${partie.joueurs
+      .map((id, i) => {
+        // Chaque carte est posée un peu de travers ; à la distribution elle part du centre de la table.
+        const style = `--i:${i};--pose:rotate(${i % 2 ? 1 : -1.2}deg);--dx:${Math.round(((n - 1) / 2 - i) * 70)}px`;
+        return `<div class="place" style="${style}">${carte(partie, parId[id], { compact, anime: animer.includes(id), taxi: compte[id] })}</div>`;
+      })
+      .join('')}
   </div>`;
 }
 
@@ -471,7 +509,7 @@ function vueAccueil() {
       .map(
         (p) => `<a class="table-bloc" href="#/partie/${p.id}">
           <div class="rangee entre"><h2>Table ${p.table}</h2><span class="statut">${statut(p)}</span></div>
-          ${jeu(p, { compact: true })}
+          ${jeu(p, { compact: true, distribuer: consommerDistribution(p.id) })}
         </a>`,
       )
       .join('')}
@@ -498,9 +536,7 @@ function vuePartie(id) {
   const { partie, tour } = trouve;
   const e = partie.etat;
 
-  const vus = ui.sortisVus[partie.id];
-  const animer = vus ? e.ordreSortie.filter((x) => !vus.has(x)) : [];
-  ui.sortisVus[partie.id] = new Set(e.ordreSortie);
+  const { animer, distribuer } = reperer(partie);
 
   const enEdition = ui.edition?.partieId === partie.id ? partie.manches.find((m) => m.id === ui.edition.mancheId) : null;
   let principal = '';
@@ -514,7 +550,7 @@ function vuePartie(id) {
     titre: `Table ${partie.table}`,
     sousTitre: `Tour ${numeroTour(tour)}, ${dateCourte(tour.creeLe)}<br>${statut(partie)}`,
     retour: { href: '#/', texte: 'Parties' },
-    contenu: jeu(partie, { animer }),
+    contenu: jeu(partie, { animer, distribuer }),
   })}
   <div class="section">
     ${principal}
@@ -525,34 +561,111 @@ function vuePartie(id) {
   </div>`;
 }
 
+function consommerDistribution(partieId) {
+  return ui.distribuer.delete(partieId);
+}
+
+/**
+ * Compare la partie à ce qui était affiché la dernière fois pour lancer les animations :
+ * joueur qui sort, taxiphone, fin de partie. Le premier affichage ne déclenche rien
+ * (sauf la distribution si la partie n'a pas encore de manche).
+ */
+function reperer(partie) {
+  const e = partie.etat;
+  const avant = ui.vus[partie.id];
+  const { compte } = infosTaxi(partie);
+  const regle = regleTaxi();
+  let animer = [];
+  let distribuer = consommerDistribution(partie.id);
+  if (!avant) {
+    distribuer ||= partie.manches.length === 0;
+  } else {
+    animer = e.ordreSortie.filter((id) => !avant.sortis.has(id));
+    for (const id of animer) ui.effets.push({ type: 'sortie', id, total: e.totaux[id] });
+    for (const id of partie.joueurs) {
+      if (compte[id] >= regle.fois && compte[id] > (avant.compte[id] ?? 0)) ui.effets.push({ type: 'taxiphone', id, n: compte[id] });
+    }
+    if (e.terminee && !avant.terminee) ui.effets.push({ type: 'victoire', partie });
+  }
+  ui.vus[partie.id] = { sortis: new Set(e.ordreSortie), compte, terminee: e.terminee };
+  return { animer, distribuer };
+}
+
 function joueursDeLaManche(partie, mode) {
   if (mode.type === 'nouvelle') return partie.etat.enJeu;
   const d = partie.etat.detail[mode.index];
   return d && !d.horsPartie ? d.actifs : partie.joueurs.filter((id) => id in mode.manche.scores);
 }
 
+const estScore = (v) => /^-?\d+$/.test(String(v ?? '').trim());
+
+/**
+ * Saisie → scores. Chaque joueur est « ferme » (il a fermé), « rien » (rien posé, +100)
+ * ou un nombre (cartes restées en main). Le score de celui qui ferme dépend des autres.
+ */
+function scoresDuBrouillon(joueurs, brouillon) {
+  const r = regleManche();
+  const scores = {};
+  for (const id of joueurs) {
+    const v = brouillon[id];
+    if (v === 'rien') scores[id] = r.rien;
+    else if (v !== 'ferme' && estScore(v)) scores[id] = Number(v);
+  }
+  const gagnant = joueurs.find((id) => brouillon[id] === 'ferme') ?? null;
+  if (gagnant != null) scores[gagnant] = scoreDuGagnant(joueurs.filter((id) => id !== gagnant).map((id) => scores[id]), r);
+  return { scores, gagnant, manquants: joueurs.filter((id) => !(id in scores)) };
+}
+
+/** Pour corriger une manche : retrouve qui a fermé et qui n'a rien posé à partir des scores. */
+function brouillonDepuisScores(joueurs, scores) {
+  const r = regleManche();
+  const brouillon = {};
+  let gagnantVu = false;
+  for (const id of joueurs) {
+    const v = scores[id];
+    if (v === undefined) continue;
+    if (!gagnantVu && (v === r.ferme || v === r.fermeSeul)) {
+      brouillon[id] = 'ferme';
+      gagnantVu = true;
+    } else if (v === r.rien) brouillon[id] = 'rien';
+    else brouillon[id] = String(v);
+  }
+  return brouillon;
+}
+
+function modeDuFormulaire(form, partie) {
+  return form.dataset.manche
+    ? { type: 'correction', manche: partie.manches.find((m) => m.id === Number(form.dataset.manche)), index: Number(form.dataset.index) }
+    : { type: 'nouvelle' };
+}
+
 function formulaireManche(partie, mode) {
   const correction = mode.type === 'correction';
   const joueurs = joueursDeLaManche(partie, mode);
   const cle = correction ? `c${mode.manche.id}` : `n${partie.id}`;
-  ui.brouillons[cle] ??= correction
-    ? Object.fromEntries(joueurs.map((id) => [id, String(mode.manche.scores[id] ?? '')]))
-    : {};
+  ui.brouillons[cle] ??= correction ? brouillonDepuisScores(joueurs, mode.manche.scores) : {};
   const brouillon = ui.brouillons[cle];
+  const { scores } = scoresDuBrouillon(joueurs, brouillon);
+  const r = regleManche();
   const num = correction ? mode.manche.num : partie.manches.length + 1;
   return `<form class="feuille" data-form="manche" data-cle="${cle}" data-partie="${partie.id}" data-num="${num}"
       ${correction ? `data-manche="${mode.manche.id}" data-index="${mode.index}"` : ''} novalidate>
     <h2>${correction ? `Correction de la manche ${num}` : `Manche ${num}`}</h2>
-    <p class="doux petit">Points restés en main. Celui qui a fermé marque 0.</p>
+    <p class="doux petit">Les cartes restées en main pour ceux qui sont descendus. <b>Fermé</b> : −${-r.ferme}, ou −${-r.fermeSeul} si personne d’autre n’est descendu. <b>+${r.rien}</b> : rien posé.</p>
     <div class="saisie">
       ${joueurs
-        .map(
-          (id) => `<label for="s-${cle}-${id}">${suite(partie.joueurs.indexOf(id))}<span>${nom(id)}</span></label>
-          <input id="s-${cle}-${id}" inputmode="numeric" autocomplete="off" enterkeyhint="next"
-            value="${esc(brouillon[id] ?? '')}" data-cle="${cle}" data-joueur="${id}">
-          <button type="button" class="btn zero" data-action="zero" data-cle="${cle}" data-joueur="${id}"
-            aria-label="${nom(id)} a fermé, 0 point">Fermé</button>`,
-        )
+        .map((id) => {
+          const v = brouillon[id];
+          const auto = v === 'ferme' || v === 'rien' ? v : '';
+          const valeur = auto ? scores[id] : (v ?? '');
+          return `<label for="s-${cle}-${id}">${suite(partie.joueurs.indexOf(id))}<span>${nom(id)}</span></label>
+          <input id="s-${cle}-${id}" inputmode="numeric" autocomplete="off" enterkeyhint="next" class="${auto}"
+            value="${esc(valeur)}" data-cle="${cle}" data-joueur="${id}" aria-label="Points de ${nom(id)}">
+          <button type="button" class="btn mode" data-action="ferme" data-cle="${cle}" data-joueur="${id}"
+            aria-pressed="${auto === 'ferme'}" aria-label="${nom(id)} a fermé">Fermé</button>
+          <button type="button" class="btn mode" data-action="rien" data-cle="${cle}" data-joueur="${id}"
+            aria-pressed="${auto === 'rien'}" aria-label="${nom(id)} n’a rien posé, +${r.rien}">+${r.rien}</button>`;
+        })
         .join('')}
     </div>
     <p class="apercu" id="apercu-${cle}" aria-live="polite">${apercu(partie, mode, brouillon)}</p>
@@ -572,14 +685,11 @@ function ligneSignature() {
     : `<p class="signature">Ton nom sera demandé à l’enregistrement.</p>`;
 }
 
-const estScore = (v) => /^-?\d+$/.test(String(v ?? '').trim());
-
 /** Ce qui se passera si on enregistre la saisie en cours. */
 function apercu(partie, mode, brouillon) {
   const joueurs = joueursDeLaManche(partie, mode);
-  const remplis = joueurs.filter((id) => estScore(brouillon[id]));
-  if (!remplis.length) return '';
-  const scores = Object.fromEntries(remplis.map((id) => [id, Number(brouillon[id])]));
+  const { scores, manquants } = scoresDuBrouillon(joueurs, brouillon);
+  if (!Object.keys(scores).length) return '';
   const manches =
     mode.type === 'nouvelle'
       ? [...partie.manches, { scores }]
@@ -587,13 +697,23 @@ function apercu(partie, mode, brouillon) {
   const apres = calculerPartie({ ...partie, manches });
   const index = mode.type === 'nouvelle' ? partie.manches.length : mode.index;
   const sortants = apres.detail[index]?.sortisIci ?? [];
-  const manquants = joueurs.length - remplis.length;
   const morceaux = [];
   if (sortants.length) {
     morceaux.push(`<strong>${sortants.map((id) => `${nom(id)} sort avec ${apres.totaux[id]}`).join(', ')}.</strong>`);
   }
-  if (manquants) {
-    morceaux.push(`Il manque ${pluriel(manquants, 'score')}.`);
+  const regle = regleTaxi();
+  const taxiAvant = infosTaxi(partie).compte;
+  const taxiApres = taxiphones(partie.joueurs, manches, apres.detail, regle).compte;
+  const taxis = joueurs.filter((id) => taxiApres[id] >= regle.fois && taxiApres[id] > taxiAvant[id]);
+  if (taxis.length) {
+    morceaux.push(
+      `<strong class="taxi-texte">${taxis
+        .map((id) => (taxiApres[id] === regle.fois ? `${nom(id)} devient taxiphone !` : `${nom(id)}, encore taxiphone (${ordinal(taxiApres[id])} fois) !`))
+        .join(' ')}</strong>`,
+    );
+  }
+  if (manquants.length) {
+    morceaux.push(`Il manque ${pluriel(manquants.length, 'score')}.`);
   } else if (apres.terminee) {
     morceaux.push(`Fin de la partie : ${nom(apres.classement[0].id)} gagne.`);
   } else if (!sortants.length) {
@@ -603,14 +723,26 @@ function apercu(partie, mode, brouillon) {
   return morceaux.join(' ');
 }
 
+/** Met à jour l'aperçu et le score de celui qui a fermé pendant la saisie. */
 function majApercu(form) {
   const partie = trouverPartie(Number(form.dataset.partie))?.partie;
   if (!partie) return;
-  const mode = form.dataset.manche
-    ? { type: 'correction', manche: partie.manches.find((m) => m.id === Number(form.dataset.manche)), index: Number(form.dataset.index) }
-    : { type: 'nouvelle' };
-  const el = form.querySelector('.apercu');
-  el.innerHTML = apercu(partie, mode, ui.brouillons[form.dataset.cle] ?? {});
+  const mode = modeDuFormulaire(form, partie);
+  const brouillon = ui.brouillons[form.dataset.cle] ?? {};
+  const { scores, gagnant } = scoresDuBrouillon(joueursDeLaManche(partie, mode), brouillon);
+  if (gagnant != null) form.querySelector(`input[data-joueur="${gagnant}"]`).value = scores[gagnant];
+  form.querySelector('.apercu').innerHTML = apercu(partie, mode, brouillon);
+}
+
+/** Redessine le formulaire (après « Fermé » ou « +100 ») et place le curseur sur le prochain score à saisir. */
+function redessinerFormulaire(form) {
+  const partie = trouverPartie(Number(form.dataset.partie))?.partie;
+  if (!partie) return;
+  const cle = form.dataset.cle;
+  form.outerHTML = formulaireManche(partie, modeDuFormulaire(form, partie));
+  const nouveau = document.querySelector(`form[data-cle="${cle}"]`);
+  const brouillon = ui.brouillons[cle] ?? {};
+  [...nouveau.querySelectorAll('input[data-joueur]')].find((i) => !(i.dataset.joueur in brouillon) || brouillon[i.dataset.joueur] === '')?.focus();
 }
 
 function resultats(partie, tour) {
@@ -652,7 +784,11 @@ function tableauManches(partie, enEdition) {
             const cellules = partie.joueurs
               .map((id) => {
                 if (!d || d.horsPartie || !d.actifs.includes(id)) return '<td class="vide">–</td>';
-                return `<td${d.sortisIci.includes(id) ? ' class="sort"' : ''}>${m.scores[id] ?? 0}</td>`;
+                const pts = m.scores[id] ?? 0;
+                const texte = pts < 0 ? `−${-pts}` : pts;
+                const valeur = pts === regleManche().rien ? `<span class="entoure">${texte}</span>` : texte;
+                const classes = [d.sortisIci.includes(id) && 'sort', pts < 0 && 'gagne'].filter(Boolean).join(' ');
+                return `<td${classes ? ` class="${classes}"` : ''}>${valeur}</td>`;
               })
               .join('');
             return `<tr data-action="corriger" data-partie="${partie.id}" data-manche="${m.id}" tabindex="0"
@@ -769,7 +905,9 @@ function listeClassement(lignes, { detail = false } = {}) {
           ${
             detail
               ? `<span class="stats"><span>${pluriel(l.parties, 'partie')}</span><span>${pluriel(l.victoires, 'victoire')}</span>
-                <span>${l.moyenne.toFixed(1).replace('.', ',')} pts par partie</span>${l.forme.length ? forme(l) : ''}</span>`
+                <span>${l.moyenne.toFixed(1).replace('.', ',')} pts par partie</span>
+                ${l.taxiphone ? `<span class="taxi-stat">${COMBINE}${l.taxiphone} fois taxiphone</span>` : ''}
+                ${l.forme.length ? forme(l) : ''}</span>`
               : ''
           }
         </li>`,
@@ -849,6 +987,18 @@ function vueReglages() {
       <div class="champ"><label for="r-b2">Points de classement, table 2</label>
         <input id="r-b2" name="b2" value="${esc((r.bareme[2] ?? []).join(', '))}"></div>
       <p class="doux petit">Les parties déjà lancées gardent leurs règles.</p>
+      <h3>Score d’une manche</h3>
+      <div class="champ"><label for="r-rien">Rien posé</label>
+        <input id="r-rien" name="rien" inputmode="numeric" value="${regleManche().rien}">
+        <span class="aide">Points pris par celui qui n’est pas descendu.</span></div>
+      <div class="champ"><label for="r-ferme-seul">Points retirés au gagnant si personne d’autre n’est descendu</label>
+        <input id="r-ferme-seul" name="fermeSeul" inputmode="numeric" value="${-regleManche().fermeSeul}"></div>
+      <div class="champ"><label for="r-ferme">Points retirés au gagnant sinon</label>
+        <input id="r-ferme" name="ferme" inputmode="numeric" value="${-regleManche().ferme}"></div>
+      <h3>Taxiphone</h3>
+      <div class="champ"><label for="r-taxi-fois">Nombre de +${regleManche().rien} dans une partie</label>
+        <input id="r-taxi-fois" name="taxiFois" inputmode="numeric" value="${regleTaxi().fois}">
+        <span class="aide">À partir de ce nombre, le joueur est taxiphone. Compté sur toutes les parties, anciennes comprises.</span></div>
       <button type="submit" class="btn principal plein">Enregistrer les règles</button>
     </form>
 
@@ -906,6 +1056,93 @@ function vueReglages() {
   </div>`;
 }
 
+// ---------------------------------------------------------------- animations
+
+/** Joue dans l'ordre : sorties, taxiphones, puis la fête du vainqueur. */
+function jouerEffets() {
+  const effets = ui.effets.splice(0);
+  if (!effets.length) return;
+  const ordre = { sortie: 0, taxiphone: 1, victoire: 2 };
+  effets.sort((a, b) => ordre[a.type] - ordre[b.type]);
+  let delai = 650;
+  for (const f of effets) {
+    if (f.type === 'victoire') {
+      setTimeout(() => fete(f.partie), delai);
+    } else {
+      setTimeout(() => annonce(f), delai);
+      delai += 2500;
+    }
+  }
+}
+
+function annonce(f) {
+  const el = document.createElement('div');
+  el.className = `annonce ${f.type}`;
+  el.setAttribute('role', 'status');
+  if (f.type === 'taxiphone') {
+    const regle = regleTaxi();
+    el.innerHTML = `${COMBINE}<div><b>${nom(f.id)}, ${f.n > regle.fois ? 'encore ' : ''}taxiphone !</b>
+      <span>${ordinal(f.n)} fois +${regle.rien} dans la partie</span></div>`;
+    document.querySelector(`.tapis .carte[data-joueur="${f.id}"] .taxi`)?.classList.add('sonne');
+    try {
+      navigator.vibrate?.([90, 60, 90, 60, 90]);
+    } catch {
+      /* vibration indisponible */
+    }
+  } else {
+    el.innerHTML = `<span class="dos" aria-hidden="true"></span><div><b>${nom(f.id)} sort</b><span>avec ${f.total} points</span></div>`;
+  }
+  document.body.append(el);
+  setTimeout(() => el.classList.add('part'), 2200);
+  setTimeout(() => el.remove(), 2700);
+}
+
+function confettis(n = 34) {
+  const couleurs = ['var(--rouge)', '#1c1410', 'var(--jaune)', 'var(--vert)'];
+  return Array.from({ length: n }, (_, i) => {
+    const s = ORDRE_SUITES[i % 4];
+    const style = [
+      `--x:${(Math.random() * 100).toFixed(1)}%`,
+      `--d:${(Math.random() * 2.2).toFixed(2)}s`,
+      `--t:${(2.6 + Math.random() * 2.4).toFixed(2)}s`,
+      `--r:${Math.round(Math.random() * 720 - 360)}deg`,
+      `--s:${(0.6 + Math.random() * 0.9).toFixed(2)}`,
+    ].join(';');
+    return `<span style="${style}"><svg viewBox="0 0 24 24" fill="${couleurs[i % couleurs.length]}">${SUITES[s]}</svg></span>`;
+  }).join('');
+}
+
+/** Fin de partie : « Mabrouk » au vainqueur, pluie de pique, cœur, carreau, trèfle. */
+function fete(partie) {
+  const e = partie.etat;
+  const gagnants = e.classement.filter((c) => c.place === 1);
+  const noms = gagnants.map((c) => nom(c.id)).join(' et ');
+  document.querySelector('.fete')?.remove();
+  gagnants.forEach((g) => document.querySelector(`.tapis .carte[data-joueur="${g.id}"]`)?.classList.add('vient-de-gagner'));
+  const d = document.createElement('div');
+  d.className = 'fete';
+  d.innerHTML = `<div class="pluie" aria-hidden="true">${confettis()}</div>
+    <div class="fete-carte" role="dialog" aria-modal="true" aria-labelledby="fete-titre">
+      <p class="ar" lang="ar" dir="rtl" aria-hidden="true">مبروك</p>
+      <h2 id="fete-titre">Mabrouk ${noms} !</h2>
+      <p>${gagnants.length > 1 ? 'gagnent' : 'gagne'} la table ${partie.table} avec ${gagnants[0].total} points</p>
+      <p class="gain">+${gagnants[0].points} au classement</p>
+      <button type="button" class="btn principal plein">Voir les résultats</button>
+    </div>`;
+  const fermer = () => {
+    d.classList.add('part');
+    setTimeout(() => d.remove(), 250);
+    document.removeEventListener('keydown', echap);
+  };
+  const echap = (ev) => ev.key === 'Escape' && fermer();
+  d.addEventListener('click', (ev) => {
+    if (ev.target === d || ev.target.closest('button')) fermer();
+  });
+  document.addEventListener('keydown', echap);
+  document.body.append(d);
+  d.querySelector('button').focus({ preventScroll: true });
+}
+
 // ---------------------------------------------------------------- routeur et rendu
 
 function route() {
@@ -926,6 +1163,7 @@ function render() {
   };
   app.innerHTML = (vues[vue] ?? vueAccueil)();
   chargerJournauxVisibles();
+  jouerEffets();
   const onglet = { '': 'accueil', partie: 'accueil', nouveau: 'accueil' }[vue] ?? vue;
   document.querySelectorAll('nav.onglets a').forEach((a) => {
     if (a.dataset.onglet === onglet) a.setAttribute('aria-current', 'page');
@@ -947,6 +1185,12 @@ document.addEventListener('input', (ev) => {
   const el = ev.target;
   if (el.matches('input[data-cle][data-joueur]')) {
     (ui.brouillons[el.dataset.cle] ??= {})[el.dataset.joueur] = el.value;
+    if (el.classList.contains('ferme') || el.classList.contains('rien')) {
+      el.classList.remove('ferme', 'rien');
+      el.form
+        .querySelectorAll(`button.mode[data-joueur="${el.dataset.joueur}"]`)
+        .forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    }
     majApercu(el.form);
   }
 });
@@ -955,7 +1199,7 @@ document.addEventListener('keydown', (ev) => {
   const el = ev.target;
   if (ev.key === 'Enter' && el.matches('input[data-cle][data-joueur]')) {
     const champs = [...el.form.querySelectorAll('input[data-joueur]')];
-    const suivant = champs[champs.indexOf(el) + 1];
+    const suivant = champs.slice(champs.indexOf(el) + 1).find((c) => !c.classList.contains('ferme') && !c.classList.contains('rien'));
     if (suivant) {
       ev.preventDefault();
       suivant.focus();
@@ -998,21 +1242,27 @@ document.addEventListener('submit', async (ev) => {
 });
 
 async function soumettreManche(form) {
-  const scores = {};
-  for (const input of form.querySelectorAll('input[data-joueur]')) {
-    const v = input.value.trim();
-    if (!estScore(v) || Math.abs(Number(v)) > 1000) {
-      toast(v === '' ? `Il manque le score de ${nom(input.dataset.joueur)}.` : `Score invalide pour ${nom(input.dataset.joueur)}.`, true);
-      input.focus();
-      return;
-    }
-    scores[input.dataset.joueur] = Number(v);
-  }
+  const partie = trouverPartie(Number(form.dataset.partie))?.partie;
+  if (!partie) return;
+  const mode = modeDuFormulaire(form, partie);
   const cle = form.dataset.cle;
+  const { scores, manquants } = scoresDuBrouillon(joueursDeLaManche(partie, mode), ui.brouillons[cle] ?? {});
+  const champ = (id) => form.querySelector(`input[data-joueur="${id}"]`);
+  if (manquants.length) {
+    toast(`Il manque le score de ${nom(manquants[0])}.`, true);
+    champ(manquants[0])?.focus();
+    return;
+  }
+  const horsLimite = Object.keys(scores).find((id) => Math.abs(scores[id]) > 1000);
+  if (horsLimite) {
+    toast(`Score invalide pour ${nom(horsLimite)}.`, true);
+    champ(horsLimite)?.focus();
+    return;
+  }
   const num = Number(form.dataset.num);
   const ok = form.dataset.manche
     ? await ecrire(() => api.corrigerManche(Number(form.dataset.manche), scores).then((r) => ((ui.edition = null), r)), `Manche ${num} corrigée`)
-    : await ecrire(() => api.ajouterManche(Number(form.dataset.partie), num, scores), `Manche ${num} enregistrée`);
+    : await ecrire(() => api.ajouterManche(partie.id, num, scores), `Manche ${num} enregistrée`);
   if (ok) delete ui.brouillons[cle];
 }
 
@@ -1026,6 +1276,12 @@ async function soumettreReglages(form) {
     seuil: Number(form.seuil.value),
     restants: Number(form.restants.value),
     bareme: { 1: liste(form.b1.value), 2: liste(form.b2.value) },
+    manche: {
+      rien: Number(form.rien.value),
+      fermeSeul: -Math.abs(Number(form.fermeSeul.value)),
+      ferme: -Math.abs(Number(form.ferme.value)),
+    },
+    taxiphone: { fois: Number(form.taxiFois.value) },
   };
   if (!reglages.bareme[2].length) delete reglages.bareme[2];
   await ecrire(() => api.enregistrerReglages(reglages), 'Règles enregistrées');
@@ -1041,14 +1297,17 @@ document.addEventListener('click', async (ev) => {
     case 'recharger':
       return rafraichir({ force: true });
 
-    case 'zero': {
-      const input = document.getElementById(`s-${el.dataset.cle}-${el.dataset.joueur}`);
-      input.value = '0';
-      (ui.brouillons[el.dataset.cle] ??= {})[el.dataset.joueur] = '0';
-      majApercu(input.form);
-      const vide = [...input.form.querySelectorAll('input[data-joueur]')].find((i) => i.value.trim() === '');
-      vide?.focus();
-      return;
+    case 'ferme':
+    case 'rien': {
+      const brouillon = (ui.brouillons[el.dataset.cle] ??= {});
+      const id = el.dataset.joueur;
+      if (brouillon[id] === action) delete brouillon[id];
+      else {
+        // Un seul joueur ferme la manche.
+        if (action === 'ferme') for (const k of Object.keys(brouillon)) if (brouillon[k] === 'ferme') delete brouillon[k];
+        brouillon[id] = action;
+      }
+      return redessinerFormulaire(el.closest('form'));
     }
 
     case 'corriger': {
@@ -1128,7 +1387,10 @@ document.addEventListener('click', async (ev) => {
     case 'lancer': {
       const tables = ui.nouveau.tables;
       const ok = await ecrire(() => api.lancerTour(tables), 'Tour lancé');
-      if (ok) location.hash = '#/';
+      if (ok) {
+        for (const p of etat.tours[0]?.parties ?? []) ui.distribuer.add(p.id);
+        location.hash = '#/';
+      }
       return;
     }
 

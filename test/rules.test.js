@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  taxiphones,
+  scoreDuGagnant,
   calculerPartie,
   calculerClassement,
   proposerTables,
@@ -188,4 +190,34 @@ test('premier tour : ordre des présents', () => {
     [1, 2, 3, 4],
     [5, 6, 7],
   ]);
+});
+
+test('gagnant de la manche : -20 si personne d’autre n’est descendu, sinon -10', () => {
+  assert.equal(scoreDuGagnant([100, 100, 100]), -20);
+  assert.equal(scoreDuGagnant([100, 35, 100]), -10);
+  assert.equal(scoreDuGagnant([0]), -10);
+});
+
+test('taxiphone : 3 fois +100 dans la partie, un sorti ne compte plus', () => {
+  const manches = [
+    m({ 1: 100, 2: 100, 3: -10 }),
+    m({ 1: 100, 2: 120, 3: 99 }), // 120 en main n'est pas un +100
+    m({ 1: 100, 2: 450, 3: -10 }),
+    m({ 1: -10, 2: 100, 3: 40 }), // 2 dépasse 701 : il sort, la partie s'arrête
+    m({ 1: 0, 2: 100, 3: 100 }), // hors partie
+  ];
+  const etat = calculerPartie({ joueurs: [1, 2, 3], manches, seuil: 701 });
+  const { compte, taxi } = taxiphones([1, 2, 3], manches, etat.detail, { rien: 100, fois: 3 });
+  assert.deepEqual(compte, { 1: 3, 2: 2, 3: 0 });
+  assert.deepEqual(taxi, [1]);
+});
+
+test('classement : nombre de parties où le joueur a été taxiphone', () => {
+  const manches = [m({ 1: 100, 2: -10, 3: 0 }), m({ 1: 100, 2: -10, 3: 0 }), m({ 1: 100, 2: 0, 3: 800 })];
+  const etat = calculerPartie({ joueurs: [1, 2, 3], manches, seuil: 701, bareme: B2 });
+  const cl = calculerClassement([{ table: 2, etat, joueurs: [1, 2, 3], manches }], [1, 2, 3], {
+    taxiphone: { rien: 100, fois: 3 },
+  });
+  assert.equal(cl.find((l) => l.id === 1).taxiphone, 1);
+  assert.equal(cl.find((l) => l.id === 2).taxiphone, 0);
 });

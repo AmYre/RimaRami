@@ -13,14 +13,16 @@ Appli web pensée pour le téléphone (on peut l’ajouter à l’écran d’acc
 
 | | |
 |---|---|
+| Score d’une manche | Les points sont des pénalités. Celui qui ferme prend **−20** si personne d’autre n’est descendu, sinon **−10**. Celui qui n’a rien posé prend **+100**. Les autres comptent les cartes restées en main. À la saisie : boutons *Fermé* et *+100*, le −10 / −20 se calcule tout seul. |
 | Sortie | Un joueur dont le total **dépasse 701** est sorti (701 pile, il reste en jeu). Il ne marque plus de points. |
 | Fin de partie | Quand il ne reste que **2 joueurs** sous le seuil : au 2e sorti à 4 joueurs, au 1er sorti à 3 joueurs. |
 | Places | Les 2 restants sont classés au plus petit total. Le premier sorti finit dernier. Deux sortis dans la même manche : le plus gros total est derrière. Égalité parfaite : même place. |
 | Points de classement | Table 1 (4 joueurs) : 10, 7, 5, 3. Table 2 (3 joueurs) : 5, 3, 1. |
 | Classement général | Somme des points. À égalité : meilleure moyenne par partie, puis plus de victoires. |
+| Taxiphone | Le joueur qui prend **3 fois +100** dans la même partie est « taxiphone » : son téléphone sonne, un badge reste sur sa carte, et le classement compte ses titres. |
 | Tables | Le 1er de la table 2 monte, le dernier de la table 1 descend. Avec 7 présents : 4 + 3 (8 : 4 + 4, 6 : 3 + 3). La proposition se modifie à la main ou se tire au sort. |
 
-Seuil, nombre de joueurs restants et barèmes se changent dans **Réglages**. Une partie garde les règles en vigueur au moment où elle a été lancée.
+Seuil, joueurs restants, barèmes, valeurs −20 / −10 / +100 et nombre de +100 du taxiphone se changent dans **Réglages**. Une partie garde les règles en vigueur au moment où elle a été lancée.
 
 Joueurs créés au premier démarrage : Amir, Youns, Riadh, Mo Salah, Adel, Fares, Jelel.
 
@@ -104,6 +106,14 @@ Les écritures demandent l’en-tête `X-Auteur` (nom, encodé URL), et `X-Pin` 
 
 ## Design
 
-L’ambiance d’un café populaire tunisien : en haut de chaque écran le mur peint en vert et sa frise de faïence de Nabeul (`public/icons/faience.svg`), dessous la table en bois sous la lampe. Les feuilles de score sont en papier quadrillé, les points écrits au Bic bleu ; un joueur sorti voit sa carte retournée.
+L’ambiance d’un café populaire tunisien : en haut de chaque écran le mur peint en vert et sa frise de faïence de Nabeul (`public/icons/faience.svg`), dessous la table en bois sous la lampe. Les feuilles de score sont en papier quadrillé, les points écrits au Bic bleu, les +100 entourés au stylo.
+
+Animations (désactivées si le téléphone demande moins d’animations) :
+- **début de partie** : les cartes sont distribuées depuis le centre de la table ;
+- **un joueur sort** : sa carte tremble puis se retourne, dos rouge, et une annonce tombe en haut de l’écran ;
+- **taxiphone** : le combiné sonne (et le téléphone vibre sur Android) ;
+- **fin de partie** : « مبروك Mabrouk » au vainqueur sous une pluie de piques, cœurs, carreaux et trèfles, sa carte s’éclaire.
+
+Elles se déclenchent aussi sur les autres téléphones qui regardent la partie.
 
 Polices (SIL Open Font License) : Bricolage Grotesque pour le texte, Alfa Slab One pour les titres et les scores, Aref Ruqaa pour « رامي » (réduite à ce seul mot).

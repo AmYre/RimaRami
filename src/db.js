@@ -214,8 +214,9 @@ export async function chargerEtat(db) {
 
   const toutesParties = tours.flatMap((t) => t.parties);
   const classement = calculerClassement(
-    toutesParties.map((p) => ({ table: p.table, etat: p.etat })),
+    toutesParties.map((p) => ({ table: p.table, etat: p.etat, joueurs: p.joueurs, manches: p.manches })),
     joueurs.map((j) => j.id),
+    { taxiphone: { rien: reglages.manche.rien, fois: reglages.taxiphone.fois } },
   );
 
   const dernierTermine = [...tours].reverse().find((t) => t.termine) ?? null;
