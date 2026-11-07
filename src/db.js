@@ -11,12 +11,41 @@ import {
 // Les colonnes INT8 (count…) arrivent en chaîne par défaut.
 pg.types.setTypeParser(20, (v) => Number.parseInt(v, 10));
 
+const nettoyer = (v) => v.trim().replace(/^(['"])(.*)\1$/, '$2');
+
+/** DATABASE_URL, en tolérant les erreurs de saisie courantes (espaces, minuscules, guillemets). */
+function urlBase() {
+  for (const [cle, valeur] of Object.entries(process.env)) {
+    if (cle.trim().toUpperCase() === 'DATABASE_URL' && valeur?.trim()) return nettoyer(valeur);
+  }
+  return null;
+}
+
+function diagnosticEnv() {
+  const noms = Object.keys(process.env).filter((k) => /DATABASE|POSTGRES|^PG[A-Z]|(^|_)DB(_|$)/i.test(k));
+  const vide = Object.keys(process.env).some((k) => k.trim().toUpperCase() === 'DATABASE_URL');
+  return [
+    'DATABASE_URL manquant : l’appli ne sait pas où est la base.',
+    vide ? 'La variable existe mais elle est vide.' : 'La variable n’existe pas dans le conteneur.',
+    noms.length ? `Variables proches trouvées (noms seuls) : ${noms.join(', ')}` : 'Aucune variable liée à une base trouvée.',
+    'Dans Dokploy : Application > Environment > Environment Settings (pas Build-time Arguments),',
+    'une ligne DATABASE_URL=postgresql://user:motdepasse@hote:5432/base, puis Save et Deploy.',
+  ].join('\n');
+}
+
 export function creerPool() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL manquant (ex. postgres://user:pass@host:5432/rimarami)');
+  // Un fichier .env à côté de l'appli est aussi accepté (pratique en local).
+  try {
+    process.loadEnvFile?.();
+  } catch {
+    /* pas de .env */
   }
   const ssl = /^(1|true|require)$/i.test(process.env.PGSSL ?? '') ? { rejectUnauthorized: false } : undefined;
-  return new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl, max: 5 });
+  const connectionString = urlBase();
+  if (connectionString) return new pg.Pool({ connectionString, ssl, max: 5 });
+  // Sinon, variables Postgres classiques (PGHOST, PGUSER, PGPASSWORD, PGDATABASE).
+  if (process.env.PGHOST) return new pg.Pool({ ssl, max: 5 });
+  throw new Error(diagnosticEnv());
 }
 
 /** Attend la base (elle peut démarrer après l'appli), crée le schéma et les données de départ. */

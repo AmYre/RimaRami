@@ -8,7 +8,13 @@ const PORT = Number(process.env.PORT ?? 3000);
 const PIN = process.env.APP_PIN?.trim() || null;
 const dossierPublic = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
-const pool = creerPool();
+let pool;
+try {
+  pool = creerPool();
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '200kb' }));
