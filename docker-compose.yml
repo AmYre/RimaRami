@@ -1,0 +1,21 @@
+# Pour lancer rimarami en local avec sa base : docker compose up
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rimarami
+      POSTGRES_PASSWORD: rimarami
+      POSTGRES_DB: rimarami
+    volumes:
+      - db:/var/lib/postgresql/data
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://rimarami:rimarami@db:5432/rimarami
+      APP_PIN: ""
+    depends_on:
+      - db
+volumes:
+  db:
