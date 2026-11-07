@@ -102,4 +102,8 @@ Les places et points ne sont jamais stockés : ils sont recalculés à partir de
 
 Les écritures demandent l’en-tête `X-Auteur` (nom, encodé URL), et `X-Pin` si `APP_PIN` est défini. `X-Appareil` (6 caractères hexadécimaux) est facultatif.
 
-Police : Bricolage Grotesque (SIL Open Font License, `public/fonts/OFL.txt`).
+## Design
+
+L’ambiance d’un café populaire tunisien : en haut de chaque écran le mur peint en vert et sa frise de faïence de Nabeul (`public/icons/faience.svg`), dessous la table en bois sous la lampe. Les feuilles de score sont en papier quadrillé, les points écrits au Bic bleu ; un joueur sorti voit sa carte retournée.
+
+Polices (SIL Open Font License) : Bricolage Grotesque pour le texte, Alfa Slab One pour les titres et les scores, Aref Ruqaa pour « رامي » (réduite à ce seul mot).

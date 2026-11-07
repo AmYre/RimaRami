@@ -431,13 +431,21 @@ function statut(partie) {
   return `Manche ${partie.manches.length + 1}, encore ${pluriel(e.sortisRestants, 'joueur')} à sortir`;
 }
 
+/** Le mur du café (titre) puis, posé sur la table juste en dessous, le contenu éventuel (les cartes). */
 function bandeau({ titre, sousTitre = '', retour = null, contenu = '' }) {
-  return `<header class="bandeau${contenu ? ' avec-table' : ''}">
-    ${retour ? `<a class="marque" href="${retour.href}">‹ ${esc(retour.texte)}</a>` : `<span class="marque">rimarami</span>`}
-    <h1>${titre}</h1>
-    ${sousTitre ? `<p class="sous-titre">${sousTitre}</p>` : ''}
-    ${contenu}
-  </header>`;
+  return `<header class="bandeau">
+    <div class="mur">
+      ${
+        retour
+          ? `<a class="marque" href="${retour.href}">‹ ${esc(retour.texte)}</a>`
+          : `<span class="marque"><span class="ar" lang="ar" dir="rtl" aria-hidden="true">رامي</span> rimarami</span>`
+      }
+      <h1>${titre}</h1>
+      ${sousTitre ? `<p class="sous-titre">${sousTitre}</p>` : ''}
+    </div>
+    <div class="frise" aria-hidden="true"></div>
+  </header>
+  ${contenu ? `<div class="tapis">${contenu}</div>` : ''}`;
 }
 
 // ---------------------------------------------------------------- vue : accueil
