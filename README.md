@@ -106,7 +106,7 @@ Les écritures demandent l’en-tête `X-Auteur` (nom, encodé URL), et `X-Pin` 
 
 ## Design
 
-L’ambiance d’un café populaire tunisien : en haut de chaque écran le mur peint en vert et sa frise de faïence de Nabeul (`public/icons/faience.svg`), dessous la table en bois sous la lampe. Les feuilles de score sont en papier quadrillé, les points écrits au Bic bleu, les +100 entourés au stylo.
+Aux couleurs de Sidi Bou Saïd : fond blanc chaulé, bandeau bleu comme les portes du village avec leur arche de clous, et une touche de rose bougainvillier pour le vainqueur. Les cartes des joueurs sont posées à cheval sur le bord du bandeau ; un joueur sorti voit sa carte retournée, dos bleu à croisillons comme une grille de fenêtre.
 
 Animations (désactivées si le téléphone demande moins d’animations) :
 - **début de partie** : les cartes sont distribuées depuis le centre de la table ;
@@ -116,4 +116,4 @@ Animations (désactivées si le téléphone demande moins d’animations) :
 
 Elles se déclenchent aussi sur les autres téléphones qui regardent la partie.
 
-Polices (SIL Open Font License) : Bricolage Grotesque pour le texte, Alfa Slab One pour les titres et les scores, Aref Ruqaa pour « رامي » (réduite à ce seul mot).
+Polices (SIL Open Font License) : Bricolage Grotesque pour tout le texte, Reem Kufi pour « رامي » et « مبروك » (réduite à ces deux mots).

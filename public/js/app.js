@@ -468,9 +468,41 @@ function statut(partie) {
   return `Manche ${partie.manches.length + 1}, encore ${pluriel(e.sortisRestants, 'joueur')} à sortir`;
 }
 
-/** Le mur du café (titre) puis, posé sur la table juste en dessous, le contenu éventuel (les cartes). */
+/** L'arche cloutée des portes de Sidi Bou Saïd : deux arcs de clous et un losange. */
+const PORTE = (() => {
+  const clous = [];
+  const arche = (r, pas) => {
+    const cx = 70;
+    const cy = 72;
+    for (let y = 214; y > cy; y -= pas) clous.push([cx - r, y], [cx + r, y]);
+    const n = Math.round((Math.PI * r) / pas);
+    for (let i = 0; i <= n; i++) {
+      const a = Math.PI + (i / n) * Math.PI;
+      clous.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+  };
+  arche(60, 10);
+  arche(44, 10);
+  for (let k = -3; k <= 3; k++) {
+    const d = 3 - Math.abs(k);
+    clous.push([70 + k * 8, 132 - d * 8], [70 + k * 8, 132 + d * 8]);
+  }
+  const vus = new Set();
+  const cercles = clous
+    .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
+    .filter((c) => !vus.has(c) && vus.add(c))
+    .map((c) => {
+      const [x, y] = c.split(',');
+      return `<circle cx="${x}" cy="${y}" r="2.6"/>`;
+    })
+    .join('');
+  return `<svg class="porte" viewBox="0 0 140 220" aria-hidden="true">${cercles}</svg>`;
+})();
+
+/** Le bandeau (une porte bleue) puis, posé à cheval sur son bord, le contenu éventuel (les cartes). */
 function bandeau({ titre, sousTitre = '', retour = null, contenu = '' }) {
-  return `<header class="bandeau">
+  return `<header class="bandeau${contenu ? ' avec-cartes' : ''}">
+    ${PORTE}
     <div class="mur">
       ${
         retour
@@ -480,7 +512,6 @@ function bandeau({ titre, sousTitre = '', retour = null, contenu = '' }) {
       <h1>${titre}</h1>
       ${sousTitre ? `<p class="sous-titre">${sousTitre}</p>` : ''}
     </div>
-    <div class="frise" aria-hidden="true"></div>
   </header>
   ${contenu ? `<div class="tapis">${contenu}</div>` : ''}`;
 }
@@ -1093,7 +1124,7 @@ function annonce(f) {
 }
 
 function confettis(n = 34) {
-  const couleurs = ['var(--rouge)', '#1c1410', 'var(--jaune)', 'var(--vert)'];
+  const couleurs = ['var(--bleu)', 'var(--rouge)', 'var(--bougainvillier)', 'var(--encre)'];
   return Array.from({ length: n }, (_, i) => {
     const s = ORDRE_SUITES[i % 4];
     const style = [
